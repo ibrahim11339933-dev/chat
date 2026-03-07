@@ -1,0 +1,6 @@
+Flask
+Flask-SocketIO
+eventlet
+python-socketio
+python-engineio
+gunicorn

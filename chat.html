@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+
+<style>
+
+body{
+margin:0;
+font-family:Arial;
+background:#ece5dd;
+}
+
+.header{
+background:#075E54;
+color:white;
+padding:15px;
+}
+
+#status{
+font-size:12px;
+}
+
+.chat-box{
+height:70vh;
+overflow:auto;
+padding:10px;
+}
+
+.msg{
+padding:8px 12px;
+margin:6px;
+border-radius:8px;
+max-width:60%;
+}
+
+.me{
+background:#DCF8C6;
+margin-left:auto;
+}
+
+.other{
+background:white;
+}
+
+.check{
+font-size:11px;
+color:gray;
+}
+
+.read{
+color:#34B7F1;
+}
+
+.input-area{
+position:fixed;
+bottom:0;
+width:100%;
+background:white;
+padding:10px;
+display:flex;
+gap:5px;
+}
+
+input{
+flex:1;
+padding:8px;
+}
+
+button{
+padding:8px;
+}
+
+.typing{
+font-size:12px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="header">
+
+<b>{{user}}</b>
+
+<div id="status">offline</div>
+
+<div id="typing" class="typing"></div>
+
+</div>
+
+<div id="chat" class="chat-box">
+
+{% for m in msgs %}
+
+<div class="msg {% if m[0]==me %}me{% else %}other{% endif %}">
+{{m[1]}}
+</div>
+
+{% endfor %}
+
+</div>
+
+<div class="input-area">
+
+<input id="msg" placeholder="message" oninput="typing()">
+
+<button onclick="sendMsg()">Send</button>
+
+<input type="file" id="file" hidden>
+
+<button onclick="document.getElementById('file').click()">📎</button>
+
+<button onclick="startRecord()">🎤</button>
+
+</div>
+
+<script>
+
+var socket = io()
+
+var me = "{{me}}"
+var user = "{{user}}"
+
+socket.emit("online",me)
+
+socket.on("status",users=>{
+
+if(users.includes(user))
+document.getElementById("status").innerText="🟢 online"
+else
+document.getElementById("status").innerText="⚫ offline"
+
+})
+
+socket.on("receive",data=>{
+
+if(data.sender!=user && data.sender!=me)return
+
+addMsg(data.sender,data.msg,data.id)
+
+if(data.sender==user){
+
+socket.emit("read",{id:data.id})
+
+}
+
+})
+
+socket.on("delivered",id=>{
+
+let el=document.getElementById("check-"+id)
+
+if(el) el.innerHTML="✔✔"
+
+})
+
+socket.on("read",id=>{
+
+let el=document.getElementById("check-"+id)
+
+if(el){
+el.innerHTML="✔✔"
+el.classList.add("read")
+}
+
+})
+
+function addMsg(sender,msg,id){
+
+let div=document.createElement("div")
+
+div.className="msg "+(sender==me?"me":"other")
+
+let check=""
+
+if(sender==me)
+check='<span class="check" id="check-'+id+'">✔</span>'
+
+div.innerHTML=msg+" "+check
+
+document.getElementById("chat").appendChild(div)
+
+scrollDown()
+
+}
+
+function scrollDown(){
+
+let c=document.getElementById("chat")
+
+c.scrollTop=c.scrollHeight
+
+}
+
+function sendMsg(){
+
+let m=document.getElementById("msg").value
+
+let id=Date.now()
+
+socket.emit("send",{
+sender:me,
+receiver:user,
+msg:m,
+id:id
+})
+
+addMsg(me,m,id)
+
+document.getElementById("msg").value=""
+
+}
+
+function typing(){
+
+socket.emit("typing",{sender:me,receiver:user})
+
+}
+
+socket.on("typing",data=>{
+
+if(data.sender==user){
+
+document.getElementById("typing").innerText="typing..."
+
+setTimeout(()=>{
+
+document.getElementById("typing").innerText=""
+
+},2000)
+
+}
+
+})
+
+document.getElementById("file").addEventListener("change",async function(){
+
+let file=this.files[0]
+
+let form=new FormData()
+
+form.append("file",file)
+
+let res=await fetch("/upload",{method:"POST",body:form})
+
+let data=await res.json()
+
+let url="/uploads/"+data.name
+
+let msg=""
+
+if(file.type.startsWith("image"))
+msg='<img src="'+url+'" width="200">'
+
+else if(file.type.startsWith("video"))
+msg='<video src="'+url+'" controls width="200"></video>'
+
+let id=Date.now()
+
+socket.emit("send",{
+sender:me,
+receiver:user,
+msg:msg,
+id:id
+})
+
+addMsg(me,msg,id)
+
+})
+
+let recorder
+let audioChunks=[]
+
+async function startRecord(){
+
+audioChunks=[]
+
+let stream=await navigator.mediaDevices.getUserMedia({audio:true})
+
+recorder=new MediaRecorder(stream)
+
+recorder.start()
+
+recorder.ondataavailable=e=>audioChunks.push(e.data)
+
+setTimeout(stopRecord,5000)
+
+}
+
+function stopRecord(){
+
+recorder.stop()
+
+recorder.onstop=async()=>{
+
+let blob=new Blob(audioChunks)
+
+let file=new File([blob],"voice.webm")
+
+let form=new FormData()
+
+form.append("file",file)
+
+let res=await fetch("/upload",{method:"POST",body:form})
+
+let data=await res.json()
+
+let url="/uploads/"+data.name
+
+let msg='<audio controls src="'+url+'"></audio>'
+
+let id=Date.now()
+
+socket.emit("send",{
+sender:me,
+receiver:user,
+msg:msg,
+id:id
+})
+
+addMsg(me,msg,id)
+
+}
+
+}
+
+</script>
+
+</body>
+
+</html>
